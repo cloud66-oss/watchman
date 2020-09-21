@@ -69,35 +69,43 @@ func handler(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("checking %s... (timeout: %s)", url, timeout)
 	ctx := context.Background()
-	err = check(ctx, url, timeout)
+	status, err := check(ctx, url, timeout)
 	if err != nil {
 		log.Print(err.Error())
-		w.WriteHeader(http.StatusOK)
+		w.WriteHeader(status)
 		w.Write([]byte(err.Error()))
 	} else {
-		w.WriteHeader(http.StatusOK)
-		log.Print("success")
-		w.Write([]byte("ok"))
+		if status == http.StatusOK {
+			w.WriteHeader(http.StatusOK)
+			log.Print("success")
+			w.Write([]byte("ok"))
+		} else {
+			w.WriteHeader(status)
+			log.Printf("failed with code %d", status)
+			w.Write([]byte("failed"))
+		}
 	}
 }
 
-func check(ctx context.Context, url string, timeout time.Duration) error {
+func check(ctx context.Context, url string, timeout time.Duration) (int, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-    	return err
+    	return http.StatusBadRequest, err
 	}
 
 	resp, err := http.DefaultClient.Do(req.WithContext(ctx))
 	if err != nil {
-		return err
+		// this is not quite correct as the issue migt be more than timeout but for the purposes
+		// of this process, timeout is ok for now.
+		return http.StatusRequestTimeout, err
 	}
 
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("non-ok response %s", resp.Status)
+		return resp.StatusCode, fmt.Errorf("non-ok response %s", resp.Status)
 	}
 
-	return nil 
+	return http.StatusOK, nil 
 }
