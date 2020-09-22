@@ -49,6 +49,7 @@ type CheckResponse struct {
 var (
 	defaultTimeout      time.Duration
 	defaultMaxRedirects int
+	authToken string 
 	// Version holds the current version of watchman
 	Version             string = "dev"
 )
@@ -62,6 +63,10 @@ func main() {
 			log.Fatalf("sentry.Init: %s", err)
 		}
 		defer sentry.Flush(2 * time.Second)
+	}
+
+	if os.Getenv("AUTH_TOKEN") != "" {
+		authToken = os.Getenv("AUTH_TOKEN")
 	}
 
 	var err error 
@@ -101,6 +106,15 @@ func main() {
 
 func handler(w http.ResponseWriter, r *http.Request) {
 	log.Print("request received")
+
+	if authToken != "" {
+		token := r.Header.Get("X-TOKEN")
+		if token != authToken {
+			http.Error(w, "invalid token", http.StatusForbidden)
+			return 
+		}
+	}
+
 	var request CheckRequest
 	err := json.NewDecoder(r.Body).Decode(&request)
 	if err != nil {
