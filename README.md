@@ -62,8 +62,8 @@ Watchman returns the following payload:
 
 ```json
 {
-	"status": 200,
-	"error": "",
+    "status": 200,
+    "error": "",
     "dns_lookup": 18228429,
     "tcp_connection": 10254574,
     "tls_handshake": 0,
@@ -118,4 +118,4 @@ gcloud run deploy --image gcr.io/PROJECT-ID/watchman --platform managed
 Repeat this process with as many regions as you'd like. Make sure to set the environment variables under the **Variables** section for the services in GCP.
 
 ## Scheduling and Alerts
-Running checks regularly and sending alerts when the endpoint is not reachable is not within the remit of Watchman, but it's easy to setup. You can use any hosted cloud scheduling services (like GCP Cloud Schedule) or your own cron jobs to do this but hitting Watchman endpoints and aggregating the restuls.
+Running checks regularly and sending alerts when the endpoint is not reachable is not within the remit of Watchman, but it's easy to setup. You can use any hosted cloud scheduling services (like GCP Cloud Schedule) or your own cron jobs to do this by hitting Watchman endpoints and aggregating the restuls.

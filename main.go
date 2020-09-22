@@ -65,6 +65,8 @@ func main() {
 		defer sentry.Flush(2 * time.Second)
 	}
 
+	log.Printf("Version %s", Version)
+
 	if os.Getenv("AUTH_TOKEN") != "" {
 		authToken = os.Getenv("AUTH_TOKEN")
 	}

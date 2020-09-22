@@ -6,7 +6,8 @@ RUN go mod download
 
 COPY . ./
 
-RUN go build -mod=readonly -v -o server
+ARG rev=development
+RUN go build -mod=readonly -v -o server -ldflags="-X 'main.Version=v1.0.0-${rev}'"
 
 FROM debian:buster-slim
 RUN set -x && apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
