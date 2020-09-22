@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/getsentry/sentry-go"
 	"golang.org/x/net/http2"
 )
 
@@ -53,8 +54,18 @@ var (
 )
 
 func main() {
+	if os.Getenv("SENTRY_API") != "" {
+		err := sentry.Init(sentry.ClientOptions{
+			Dsn: os.Getenv("SENTRY_API"),
+		})
+		if err != nil {
+			log.Fatalf("sentry.Init: %s", err)
+		}
+		defer sentry.Flush(2 * time.Second)
+	}
+
+	var err error 
 	defaultTimeout = 100 * time.Millisecond
-	var err error
 	timeoutDuration := os.Getenv("TIMEOUT")
 	if timeoutDuration != "" {
 		defaultTimeout, err = time.ParseDuration(timeoutDuration)
