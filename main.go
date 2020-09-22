@@ -32,7 +32,7 @@ type CheckRequest struct {
 // CheckResponse holds a single check's response
 type CheckResponse struct {
 	StatusCode       int           `json:"status"`
-	Error string `json:"error"`
+	Error            string        `json:"error"`
 	DNSLookup        time.Duration `json:"dns_lookup"`
 	TCPConnection    time.Duration `json:"tcp_connection"`
 	TLSHandshake     time.Duration `json:"tls_handshake"`
@@ -46,8 +46,10 @@ type CheckResponse struct {
 }
 
 var (
-	defaultTimeout time.Duration
-	defaultMaxRedirects int 
+	defaultTimeout      time.Duration
+	defaultMaxRedirects int
+	// Version holds the current version of watchman
+	Version             string = "dev"
 )
 
 func main() {
@@ -69,7 +71,7 @@ func main() {
 			log.Fatalf("invalid max redirects %s", err.Error())
 		}
 	}
- 
+
 	log.Printf("using %s as default timeout", defaultTimeout)
 
 	http.HandleFunc("/", handler)
@@ -179,7 +181,7 @@ func check(ctx context.Context, request CheckRequest, redirectsFollowed int) (*C
 	req, err := http.NewRequest("GET", url.String(), nil)
 	if err != nil {
 		response.Error = err.Error()
-		return response, nil 		
+		return response, nil
 	}
 
 	ctx, cancel := context.WithTimeout(httptrace.WithClientTrace(context.Background(), trace), request.timeout)
@@ -203,7 +205,6 @@ func check(ctx context.Context, request CheckRequest, redirectsFollowed int) (*C
 		tr.TLSClientConfig = &tls.Config{
 			ServerName:         host,
 			InsecureSkipVerify: request.VerifyCerts,
-			//Certificates:       readClientCert(clientCertFile),
 		}
 
 		// Because we create a custom TLSClientConfig, we have to opt-in to HTTP/2.
@@ -223,10 +224,11 @@ func check(ctx context.Context, request CheckRequest, redirectsFollowed int) (*C
 		},
 	}
 
+	req.Header.Set("User-Agent", fmt.Sprintf("watchman-%s", Version))
 	resp, err := client.Do(req)
 	if err != nil {
 		response.Error = err.Error()
-		return response, nil 
+		return response, nil
 	}
 
 	_ = readResponseBody(req, resp)
@@ -268,7 +270,7 @@ func check(ctx context.Context, request CheckRequest, redirectsFollowed int) (*C
 			if err == http.ErrNoLocation {
 				// 30x but no Location to follow, give up.
 				response.Error = "no location to follow"
-				return response, nil 		
+				return response, nil
 			}
 
 			return nil, err
