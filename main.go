@@ -2,22 +2,56 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"encoding/json"
 	"fmt"
+	"io"
+	"io/ioutil"
 	"log"
+	"net"
 	"net/http"
+	"net/http/httptrace"
+	"net/url"
 	"os"
+	"strconv"
 	"time"
+
+	"golang.org/x/net/http2"
 )
 
-var defaultTimeout time.Duration
+// CheckRequest is the payload for the service
+type CheckRequest struct {
+	Timeout           string `json:"timeout"`
+	URL               string `json:"url"`
+	RedirectsToFollow int    `json:"redirects_to_follow"`
+	VerifyCerts       bool   `json:"verify_certs"`
+
+	timeout time.Duration
+}
+
+// CheckResponse holds a single check's response
+type CheckResponse struct {
+	StatusCode       int           `json:"status"`
+	Error string `json:"error"`
+	DNSLookup        time.Duration `json:"dns_lookup"`
+	TCPConnection    time.Duration `json:"tcp_connection"`
+	TLSHandshake     time.Duration `json:"tls_handshake"`
+	ServerProcessing time.Duration `json:"server_processing"`
+	ContentTransfer  time.Duration `json:"content_transfer"`
+	NameLookup       time.Duration `json:"name_lookup"`
+	Connect          time.Duration `json:"connect"`
+	PreTransfer      time.Duration `json:"pre_transfer"`
+	StartTransfer    time.Duration `json:"start_transfer"`
+	Total            time.Duration `json:"total"`
+}
+
+var (
+	defaultTimeout time.Duration
+	defaultMaxRedirects int 
+)
 
 func main() {
-	region := os.Getenv("REGION")
-	if region == "" {
-		log.Fatal("no region set")
-	}
-
-	defaultTimeout = 100*time.Millisecond
+	defaultTimeout = 100 * time.Millisecond
 	var err error
 	timeoutDuration := os.Getenv("TIMEOUT")
 	if timeoutDuration != "" {
@@ -27,16 +61,24 @@ func main() {
 		}
 	}
 
+	defaultMaxRedirects = 3
+	maxRedirects := os.Getenv("MAX_REDIRECTS")
+	if maxRedirects != "" {
+		defaultMaxRedirects, err = strconv.Atoi(maxRedirects)
+		if err != nil {
+			log.Fatalf("invalid max redirects %s", err.Error())
+		}
+	}
+ 
 	log.Printf("using %s as default timeout", defaultTimeout)
 
-	log.Printf("starting watchman region %s...", region)
 	http.HandleFunc("/", handler)
 
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 		log.Printf("defaulting port to %s", port)
-	} 
+	}
 
 	log.Printf("listening on port %s", port)
 	if err := http.ListenAndServe(":"+port, nil); err != nil {
@@ -45,67 +87,204 @@ func main() {
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query()
-	urls, ok := query["url"]
-	if !ok || len(urls) == 0 {
-		log.Print("missing url")
-		w.WriteHeader(http.StatusBadRequest)
-		return 
-	}
-	url := urls[0]
-
-	var err error 
-	timeout := defaultTimeout
-	customTimeouts, ok := query["timeout"]
-	if ok && len(customTimeouts) != 0 {
-		timeout, err = time.ParseDuration(customTimeouts[0])
-		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			log.Print("bad timeout")
-			w.Write([]byte("bad timeout"))
-			return 
-		}
-	}
-
-	log.Printf("checking %s... (timeout: %s)", url, timeout)
-	ctx := context.Background()
-	status, err := check(ctx, url, timeout)
+	log.Print("request received")
+	var request CheckRequest
+	err := json.NewDecoder(r.Body).Decode(&request)
 	if err != nil {
-		log.Print(err.Error())
-		w.WriteHeader(status)
-		w.Write([]byte(err.Error()))
-	} else {
-		if status == http.StatusOK {
-			w.WriteHeader(http.StatusOK)
-			log.Print("success")
-			w.Write([]byte("ok"))
-		} else {
-			w.WriteHeader(status)
-			log.Printf("failed with code %d", status)
-			w.Write([]byte("failed"))
-		}
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
+
+	var timeout time.Duration
+	if request.Timeout != "" {
+		timeout, err = time.ParseDuration(request.Timeout)
+		if err != nil {
+			http.Error(w, "bad timeout", http.StatusBadRequest)
+			return
+		}
+		request.timeout = timeout
+	} else {
+		request.timeout = defaultTimeout
+	}
+
+	if request.RedirectsToFollow == 0 {
+		request.RedirectsToFollow = defaultMaxRedirects
+	}
+
+	log.Printf("checking %v...", request)
+	ctx := context.Background()
+	response, err := check(ctx, request, 0)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	buff, err := json.Marshal(response)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Write(buff)
 }
 
-func check(ctx context.Context, url string, timeout time.Duration) (int, error) {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+func isRedirect(resp *http.Response) bool {
+	return resp.StatusCode > 299 && resp.StatusCode < 400
+}
+
+// readResponseBody consumes the body of the response.
+// readResponseBody returns an informational message about the
+// disposition of the response body's contents.
+func readResponseBody(req *http.Request, resp *http.Response) error {
+	if isRedirect(resp) {
+		return nil
+	}
+
+	if _, err := io.Copy(ioutil.Discard, resp.Body); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func check(ctx context.Context, request CheckRequest, redirectsFollowed int) (*CheckResponse, error) {
+	url, err := url.Parse(request.URL)
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CheckResponse{}
+
+	var t0, t1, t2, t3, t4, t5, t6 time.Time
+	trace := &httptrace.ClientTrace{
+		DNSStart: func(_ httptrace.DNSStartInfo) { t0 = time.Now() },
+		DNSDone:  func(_ httptrace.DNSDoneInfo) { t1 = time.Now() },
+		ConnectStart: func(_, _ string) {
+			if t1.IsZero() {
+				// connecting to IP
+				t1 = time.Now()
+			}
+		},
+		ConnectDone: func(net, addr string, err error) {
+			if err != nil {
+				response.Error = err.Error()
+			}
+			t2 = time.Now()
+		},
+		GotConn:              func(_ httptrace.GotConnInfo) { t3 = time.Now() },
+		GotFirstResponseByte: func() { t4 = time.Now() },
+		TLSHandshakeStart:    func() { t5 = time.Now() },
+		TLSHandshakeDone:     func(_ tls.ConnectionState, _ error) { t6 = time.Now() },
+	}
+
+	req, err := http.NewRequest("GET", url.String(), nil)
+	if err != nil {
+		response.Error = err.Error()
+		return response, nil 		
+	}
+
+	ctx, cancel := context.WithTimeout(httptrace.WithClientTrace(context.Background(), trace), request.timeout)
 	defer cancel()
 
-	req, err := http.NewRequest("GET", url, nil)
+	req = req.WithContext(ctx)
+
+	tr := &http.Transport{
+		MaxIdleConns:          5,
+		IdleConnTimeout:       1 * time.Second,
+		TLSHandshakeTimeout:   1 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+
+	if url.Scheme == "https" {
+		host, _, err := net.SplitHostPort(req.Host)
+		if err != nil {
+			host = req.Host
+		}
+
+		tr.TLSClientConfig = &tls.Config{
+			ServerName:         host,
+			InsecureSkipVerify: request.VerifyCerts,
+			//Certificates:       readClientCert(clientCertFile),
+		}
+
+		// Because we create a custom TLSClientConfig, we have to opt-in to HTTP/2.
+		// See https://github.com/golang/go/issues/14275
+		err = http2.ConfigureTransport(tr)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	client := &http.Client{
+		Transport: tr,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			// always refuse to follow redirects, check does that
+			// manually if required.
+			return http.ErrUseLastResponse
+		},
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
-    	return http.StatusBadRequest, err
+		response.Error = err.Error()
+		return response, nil 
 	}
 
-	resp, err := http.DefaultClient.Do(req.WithContext(ctx))
-	if err != nil {
-		// this is not quite correct as the issue migt be more than timeout but for the purposes
-		// of this process, timeout is ok for now.
-		return http.StatusRequestTimeout, err
+	_ = readResponseBody(req, resp)
+	resp.Body.Close()
+	response.StatusCode = resp.StatusCode
+
+	t7 := time.Now()
+	if t0.IsZero() {
+		// we skipped DNS
+		t0 = t1
 	}
 
-	if resp.StatusCode != 200 {
-		return resp.StatusCode, fmt.Errorf("non-ok response %s", resp.Status)
+	switch url.Scheme {
+	case "https":
+		response.DNSLookup = t1.Sub(t0)
+		response.TCPConnection = t2.Sub(t1)
+		response.TLSHandshake = t6.Sub(t5)
+		response.ServerProcessing = t4.Sub(t3)
+		response.ContentTransfer = t7.Sub(t4)
+		response.NameLookup = t1.Sub(t0)
+		response.Connect = t2.Sub(t0)
+		response.PreTransfer = t3.Sub(t0)
+		response.StartTransfer = t4.Sub(t0)
+		response.Total = t7.Sub(t0)
+	case "http":
+		response.DNSLookup = t1.Sub(t0)
+		response.TCPConnection = t3.Sub(t1)
+		response.ServerProcessing = t4.Sub(t3)
+		response.ContentTransfer = t7.Sub(t4)
+		response.NameLookup = t1.Sub(t0)
+		response.Connect = t2.Sub(t0)
+		response.StartTransfer = t4.Sub(t0)
+		response.Total = t7.Sub(t0)
 	}
 
-	return http.StatusOK, nil 
+	if isRedirect(resp) {
+		loc, err := resp.Location()
+		if err != nil {
+			if err == http.ErrNoLocation {
+				// 30x but no Location to follow, give up.
+				response.Error = "no location to follow"
+				return response, nil 		
+			}
+
+			return nil, err
+		}
+
+		redirectsFollowed++
+		if redirectsFollowed > request.RedirectsToFollow {
+			response.Error = fmt.Sprintf("maximum number of redirects (%d) followed", request.RedirectsToFollow)
+			return response, nil
+		}
+
+		log.Printf("redirecting to %s (%d of %d)", loc.String(), redirectsFollowed, request.RedirectsToFollow)
+		request.URL = loc.String()
+		return check(ctx, request, redirectsFollowed)
+	}
+
+	return response, nil
 }
