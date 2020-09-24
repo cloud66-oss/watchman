@@ -89,7 +89,7 @@ Watchman is configured using environment variables. This makes it suitable for s
 - `PORT`  Port to listen to (default 8080)
 - `TIMEOUT` Default check timeout. (default 100ms)
 - `MAX_REDIRECTS` Maximum number of HTTP redirects Watchman should follow before giving up (default 3)
-- `AUTH_TOKEN`  If provided, Watchman will only respond to requests that have the same value in their X-TOKEN header. (default none)
+- `AUTH_TOKEN`  If provided, Watchman will only respond to requests that have the same value in their X-Token header. (default none)
 - `SENTRY_API` If provided, Watchman will send crash reports to Sentry.
 
 ## Deployment

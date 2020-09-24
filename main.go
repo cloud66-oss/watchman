@@ -136,7 +136,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	log.Print("request received")
 
 	if authToken != "" {
-		token := r.Header.Get("X-TOKEN")
+		token := r.Header.Get("X-Token")
 		if token != authToken {
 			http.Error(w, "invalid token", http.StatusForbidden)
 			return 
@@ -278,6 +278,7 @@ func check(ctx context.Context, request CheckRequest, redirectsFollowed int) (*C
 	}
 
 	req.Header.Set("User-Agent", fmt.Sprintf("watchman-%s", Version))
+	req.Header.Set("X-Region", Region)
 	resp, err := client.Do(req)
 	if err != nil {
 		response.Error = err.Error()
