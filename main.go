@@ -51,7 +51,9 @@ var (
 	defaultMaxRedirects int
 	authToken string 
 	// Version holds the current version of watchman
-	Version             string = "dev"
+	Version string = "dev"
+	// Region is used if Watchman is deployed to GCP Cloud Run
+	Region string = "unknown"
 )
 
 func main() {
@@ -63,6 +65,10 @@ func main() {
 			log.Fatalf("sentry.Init: %s", err)
 		}
 		defer sentry.Flush(2 * time.Second)
+	}
+
+	if os.Getenv("_DEPLOY_REGION") != "" {
+		Region = os.Getenv("_REGION")
 	}
 
 	log.Printf("Version %s", Version)
@@ -93,6 +99,7 @@ func main() {
 	log.Printf("using %s as default timeout", defaultTimeout)
 
 	http.HandleFunc("/", handler)
+	http.HandleFunc("/_ping", pingHandler)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -103,6 +110,25 @@ func main() {
 	log.Printf("listening on port %s", port)
 	if err := http.ListenAndServe(":"+port, nil); err != nil {
 		log.Fatal(err)
+	}
+}
+
+func pingHandler(w http.ResponseWriter, r *http.Request) {
+	log.Print("ping")
+
+	response := struct {
+		Version string 
+		Region  string 
+	}{
+		Version: Version,
+		Region: Region,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	err := json.NewEncoder(w).Encode(response)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 }
 
