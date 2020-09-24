@@ -71,7 +71,7 @@ func main() {
 		Region = os.Getenv("_REGION")
 	}
 
-	log.Printf("Version %s", Version)
+	log.Printf("Version %s, Region %s", Version, Region)
 
 	if os.Getenv("AUTH_TOKEN") != "" {
 		authToken = os.Getenv("AUTH_TOKEN")

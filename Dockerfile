@@ -7,7 +7,8 @@ RUN go mod download
 COPY . ./
 
 ARG rev=development
-RUN go build -mod=readonly -v -o server -ldflags="-X 'main.Version=v1.0.0-${rev}'"
+ARG region=unknown
+RUN go build -mod=readonly -v -o server -ldflags="-X 'main.Version=v1.0.0-${rev}' -X 'main.Region=${region}'"
 
 FROM debian:buster-slim
 RUN set -x && apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
