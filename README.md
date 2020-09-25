@@ -96,6 +96,13 @@ Watchman is configured using environment variables. This makes it suitable for s
 ## Deployment
 Watchman comes with a Dockerfile, so you can run it as a Docker container (ie on Kubernetes) or as a serverless deployment. Simply provide the required environment variables and start the executable. In production environment, make sure you secure the setup with SSL.
 
+You can use the prebuilt image of Watchman:
+
+```bash
+docker pull cloud66/watchman
+```
+
+
 ### Deploying to GCP Cloud Run
 This is a quick guide on how to deploy Watchman to multiple Google Cloud Run regions.
 
