@@ -37,7 +37,7 @@ curl -H "Content-Type: application/json" http://localhost:8080 --data '{"url":"h
 }
 ```
 
-The command above, runs a check, from your local machine, to `http://www.google.com` with a 1 second timeout. If `http://www.google.com` responds in less than 1 second, Watchman will return a JSON payload with the site's response metrics. The numbers are in milliseconds.
+The command above, runs a check, from your local machine, to `http://www.google.com` with a 1 second timeout. If `http://www.google.com` responds in less than 1 second, Watchman will return a JSON payload with the site's response metrics. The numbers are in nanoseconds.
 
 If there is an error during the check (the site name is invalid or the site is down), the `status` will be `0` and the `error` will have more information on the error. For a successful check, you should always look for `200` in `status`.
 
