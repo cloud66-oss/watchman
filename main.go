@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,6 +19,16 @@ import (
 
 	"github.com/getsentry/sentry-go"
 	"golang.org/x/net/http2"
+)
+
+type ctxKey = int
+
+var (
+	ctxCerts ctxKey = 1
+)
+
+var (
+	rootCerts *x509.CertPool
 )
 
 // CheckRequest is the payload for the service
@@ -96,6 +107,14 @@ func main() {
 		}
 	}
 
+	rootCerts, err = x509.SystemCertPool()
+	if err != nil {
+		log.Fatalf("failed to load system certs %s", err.Error())
+	}
+	if rootCerts == nil {
+		rootCerts = x509.NewCertPool()
+	}
+
 	log.Printf("using %s as default timeout", defaultTimeout)
 
 	http.HandleFunc("/", handler)
@@ -168,6 +187,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("checking %v...", request)
 	ctx := context.Background()
+	ctx = context.WithValue(ctx, ctxCerts, rootCerts)
 	response, err := check(ctx, request, 0)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -202,6 +222,19 @@ func readResponseBody(req *http.Request, resp *http.Response) error {
 }
 
 func check(ctx context.Context, request CheckRequest, redirectsFollowed int) (*CheckResponse, error) {
+	// you can pass in a x509.CertPool in the context to avoid using the system one
+	var certs *x509.CertPool
+	var err error
+	var ok bool
+	if certs, ok = ctx.Value(ctxCerts).(*x509.CertPool); !ok {
+		certs, err = x509.SystemCertPool()
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		log.Print("found root certs on the context")
+	}
+
 	url, err := url.Parse(request.URL)
 	if err != nil {
 		return nil, err
@@ -257,6 +290,7 @@ func check(ctx context.Context, request CheckRequest, redirectsFollowed int) (*C
 
 		tr.TLSClientConfig = &tls.Config{
 			ServerName:         host,
+			RootCAs:            certs,
 			InsecureSkipVerify: request.VerifyCerts,
 		}
 
