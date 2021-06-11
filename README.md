@@ -1,7 +1,7 @@
 <img src="http://cdn2-cloud66-com.s3.amazonaws.com/images/oss-sponsorship.png" width=150/>
 
 # Watchman
-Watchman is a web service to check health of an HTTP(S) endpoint remotely. It is intendend to run as a light, multi-instnace service on different geographical locations to provide a full picture of a web endpoint's health and accessibilty. 
+Watchman is a web service to check health of an HTTP(S) endpoint remotely. It is intendend to run as a light, multi-instance service on different geographical locations to provide a full picture of a web endpoint's health and accessibilty. 
 
 Watchman can easily be deployed as a "serverless" function (like AWS Lambda or GCP Cloud Run) for full geographical distribution, access to high quality network and cost effective monitoring.
 
