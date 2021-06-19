@@ -87,7 +87,7 @@ func main() {
 		}
 	}
 
-	defaultMaxRedirects = 3
+	defaultMaxRedirects = 0 // no redirects by default
 	maxRedirects := os.Getenv("MAX_REDIRECTS")
 	if maxRedirects != "" {
 		defaultMaxRedirects, err = strconv.Atoi(maxRedirects)
